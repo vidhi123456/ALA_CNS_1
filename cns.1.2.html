@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>CryptoShare</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+  
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: linear-gradient(to right, #e3f2fd, #ffffff);
+      margin: 0;
+      padding: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+  
+    .container {
+      width: 90%;
+      max-width: 700px;
+      background: #ffffff;
+      padding: 30px;
+      border-radius: 14px;
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.1);
+    }
+  
+    h1 {
+      text-align: center;
+      color: #007acc;
+      margin-bottom: 20px;
+      font-size: 28px;
+    }
+  
+    .section-title {
+      font-weight: bold;
+      margin-top: 20px;
+      color: #005fa3;
+      font-size: 16px;
+    }
+  
+    textarea,
+    input {
+      width: 100%;
+      padding: 12px 14px;
+      margin-top: 10px;
+      margin-bottom: 15px;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      font-size: 15px;
+      transition: border 0.3s, box-shadow 0.3s;
+    }
+  
+    textarea:focus,
+    input:focus {
+      outline: none;
+      border-color: #007acc;
+      box-shadow: 0 0 6px rgba(0, 122, 204, 0.3);
+    }
+  
+    button {
+      width: 100%;
+      background: #007acc;
+      color: #fff;
+      border: none;
+      padding: 14px;
+      font-size: 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.3s;
+      margin-top: 5px;
+    }
+  
+    button:hover {
+      background: #005fa3;
+    }
+  
+    hr {
+      margin: 30px 0;
+      border: none;
+      border-top: 1px solid #ddd;
+    }
+  </style>  
+</head>
+<body>
+  <div class="wrapper">
+    <h2>🔐 Cipher text</h2>
+
+    <label for="textInput">📨 Your Message</label>
+    <textarea id="textInput" rows="4" placeholder="Write something secret..."></textarea>
+
+    <label for="secretKey">🔑 Shared Password</label>
+    <input type="password" id="secretKey" placeholder="Enter password for encryption">
+
+    <button onclick="lock()">Encrypt</button>
+
+    <label for="cipherBox">🔒 Encrypted Output</label>
+    <textarea id="cipherBox" rows="6" readonly></textarea>
+    <button onclick="copyToClipboard()">📋 Copy</button>
+
+    <div class="divider"></div>
+
+    <label for="inputEncrypted">📥 Paste Encrypted Text</label>
+    <textarea id="inputEncrypted" rows="6" placeholder="Paste your encrypted message"></textarea>
+
+    <button onclick="unlock()">Decrypt</button>
+
+    <label for="resultBox">✅ Decrypted Message</label>
+    <textarea id="resultBox" rows="4" readonly></textarea>
+  </div>
+
+  <script>
+  const toBase64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
+  const fromBase64 = str => Uint8Array.from(atob(str), c => c.charCodeAt(0)).buffer;
+
+  async function hashPassword(password) {
+    const enc = new TextEncoder().encode(password);
+    const hash = await crypto.subtle.digest("SHA-256", enc);
+    return hash;
+  }
+
+  async function deriveAESKey(passwordHash) {
+    return crypto.subtle.importKey(
+      "raw",
+      passwordHash,
+      { name: "AES-GCM" },
+      false,
+      ["encrypt", "decrypt"]
+    );
+  }
+
+  async function lock() {
+    const message = document.getElementById("textInput").value.trim();
+    const password = document.getElementById("secretKey").value.trim();
+
+    if (!message || !password) {
+      alert("Please enter message and password.");
+      return;
+    }
+
+    try {
+      const pwdHash = await hashPassword(password);
+      const iv = new Uint8Array(await hashPassword(password + "iv")).slice(0, 12); // Derived IV
+      const key = await deriveAESKey(pwdHash);
+
+      const encoded = new TextEncoder().encode(message);
+      const encrypted = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoded);
+
+      const payload = {
+        hint: toBase64((await crypto.subtle.digest("SHA-1", new TextEncoder().encode(password))).slice(0, 8)),
+        v: toBase64(iv),
+        c: toBase64(encrypted)
+      };
+
+      document.getElementById("cipherBox").value = JSON.stringify(payload, null, 2);
+      alert("✅ Message encrypted!");
+    } catch (err) {
+      console.error(err);
+      alert("❌ Encryption failed.");
+    }
+  }
+
+  async function unlock() {
+    const password = document.getElementById("secretKey").value.trim();
+    const data = document.getElementById("inputEncrypted").value.trim();
+
+    if (!password || !data) {
+      alert("Please enter password and encrypted data.");
+      return;
+    }
+
+    try {
+      const json = JSON.parse(data);
+      const pwdHash = await hashPassword(password);
+      const key = await deriveAESKey(pwdHash);
+      const iv = fromBase64(json.v);
+      const ciphertext = fromBase64(json.c);
+
+      const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ciphertext);
+      const msg = new TextDecoder().decode(decrypted);
+
+      document.getElementById("resultBox").value = msg;
+      alert("✅ Decrypted successfully!");
+    } catch (err) {
+      console.error(err);
+      alert("❌ Decryption failed. Possibly wrong password.");
+    }
+  }
+</script>
+
+</body>
+</html>
